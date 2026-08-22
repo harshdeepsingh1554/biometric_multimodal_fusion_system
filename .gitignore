@@ -1,0 +1,11 @@
+data/
+embeddings/
+weights/
+results/
+open-iris/
+OpenSourceIrisRecognition/
+__pycache__/
+database/
+enrolled_templates.json
+results.json
+pyrightconfig.json
