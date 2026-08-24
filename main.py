@@ -299,12 +299,14 @@ class MultiModalBiometricPipeline:
                         logger.warning(f"  [finger live] {person_id} {os.path.basename(img_path)}: {e}")
 
                 leftover_iris_embs = []
+                gal_iris_emb = avg["iris"]
                 for img_path in leftover_iris_paths:
                     try:
-                        emb = self.iris_extractor.extract_features(img_path)
+                        emb = self.iris_extractor.extract_features_aligned(img_path, gallery_embedding=gal_iris_emb)
                         leftover_iris_embs.append(emb)
                     except Exception as e:
                         logger.warning(f"  [iris live] {person_id} {os.path.basename(img_path)}: {e}")
+
 
                 # 3. Create live set for leftover images (with cycling if a trait's images run out)
                 # Number of live set iterations = max count of leftover embeddings across traits

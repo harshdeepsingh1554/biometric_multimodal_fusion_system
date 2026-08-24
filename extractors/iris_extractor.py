@@ -201,6 +201,67 @@ class IrisExtractor:
             f"See preceding warning log for the underlying cause."
         )
 
+    def extract_features_aligned(self, image_path_or_array, gallery_embedding, eye_side="right", shifts=(-24, -16, -8, 0, 8, 16, 24), l2_normalize=True):
+        """
+        Extracts ResNet100 embedding with horizontal roll alignment against a gallery_embedding.
+        Sweeps horizontal pixel shifts (compensating for head tilts up to ±14°) and returns the
+        embedding that maximizes cosine similarity with gallery_embedding.
+        Matches the destination project's Iris probe extraction pipeline.
+        """
+        if gallery_embedding is None:
+            return self.extract_features(image_path_or_array, eye_side=eye_side, backend="resnet100", l2_normalize=l2_normalize)
+
+        source_is_path = isinstance(image_path_or_array, str)
+        tmp_path = None
+
+        try:
+            if source_is_path:
+                _ = self.open_iris.extract_template(image_path_or_array, eye_side=eye_side)
+            else:
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp_path = tmp.name
+                import cv2 as _cv2
+                _cv2.imwrite(tmp_path, image_path_or_array)
+                try:
+                    _ = self.open_iris.extract_template(tmp_path, eye_side=eye_side)
+                finally:
+                    os.unlink(tmp_path)
+
+            norm_img = self.open_iris.manager.last_normalized_image
+            if norm_img is None:
+                raise RuntimeError("OpenIris last_normalized_image is None")
+
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            norm_img = clahe.apply(norm_img)
+
+            gallery_norm = (gallery_embedding / max(np.linalg.norm(gallery_embedding), 1e-12)).astype(np.float32)
+
+            tensors = []
+            for s in shifts:
+                rolled = np.roll(norm_img, s, axis=1)
+                im_polar = Image.fromarray(rolled, "L").resize((512, 64), Image.Resampling.BILINEAR)
+                t = self.transform(im_polar).repeat(3, 1, 1)
+                tensors.append(t)
+
+            batch_tensor = torch.stack(tensors, dim=0).to(self.device)  # (7, 3, 64, 512)
+
+            with torch.no_grad():
+                emb_tensors = self.resnet_model(batch_tensor)
+                if l2_normalize:
+                    emb_tensors = torch.nn.functional.normalize(emb_tensors, dim=1)
+                embs = emb_tensors.cpu().numpy().astype(np.float32)
+
+            sims = np.dot(embs, gallery_norm)
+            best_idx = int(np.argmax(sims))
+            return embs[best_idx]
+
+        except Exception as e:
+            logger.warning(f"Aligned iris extraction warning for {image_path_or_array}: {e}")
+
+        return self.extract_features(image_path_or_array, eye_side=eye_side, backend="resnet100", l2_normalize=l2_normalize)
+
+
     def extract_both_features(self, image_path_or_array, eye_side="right", l2_normalize=True):
         """
         Same idea as extract_features, but computes BOTH gabor and

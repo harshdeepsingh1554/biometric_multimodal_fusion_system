@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -39,6 +40,12 @@ class BioHasher:
         hash_dim  : Code length of output BioHash M (e.g. 512, 1024)
         seed      : Secret key seed used to generate orthonormal random matrix R
         """
+        if hash_dim > input_dim:
+            raise ValueError(
+                f"hash_dim ({hash_dim}) cannot exceed input_dim ({input_dim}): "
+                f"QR can only produce min(input_dim, hash_dim) orthonormal columns."
+            )
+
         self.input_dim = input_dim
         self.hash_dim  = hash_dim
         self.seed      = seed
@@ -49,6 +56,11 @@ class BioHasher:
         # QR decomposition guarantees orthonormal columns R^T R = I_M
         q, _ = np.linalg.qr(gaussian_mat)
         self.R = q[:, :hash_dim].astype(np.float64)  # (D, M)
+
+        assert self.R.shape == (input_dim, hash_dim), (
+            f"Projection matrix shape mismatch: expected {(input_dim, hash_dim)}, "
+            f"got {self.R.shape}."
+        )
 
     def generate_biohash(self, x: np.ndarray, threshold: float = 0.0) -> np.ndarray:
         """
@@ -86,17 +98,6 @@ def create_biohash_tables(conn: sqlite3.Connection):
     cur = conn.cursor()
     cur.executescript("""
         CREATE TABLE IF NOT EXISTS biohash_embeddings (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            person_id   TEXT    NOT NULL,
-            dataset     TEXT    NOT NULL,
-            trait       TEXT    NOT NULL,
-            hash_dim    INTEGER NOT NULL,
-            embedding   BLOB    NOT NULL,
-            dim         INTEGER NOT NULL,
-            UNIQUE(person_id, dataset, trait, hash_dim)
-        );
-
-        CREATE TABLE IF NOT EXISTS biohash_fused (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             person_id   TEXT    NOT NULL,
             dataset     TEXT    NOT NULL,
@@ -182,8 +183,13 @@ def run_biohashing(
 
     def get_hasher(input_dim: int, trait_name: str) -> BioHasher:
         if (input_dim, trait_name) not in hasher_cache:
-            # Deterministic per-trait seed derived from master key_seed
-            trait_seed = (key_seed + hash(trait_name) % 100000) & 0x7FFFFFFF
+            # Deterministic per-trait seed derived from master key_seed via SHA-256
+            # (Python's built-in hash() is randomized per-process for strings and
+            # must never be used for reproducible seeding across runs.)
+            seed_string = f"{key_seed}_{trait_name}"
+            hash_bytes = hashlib.sha256(seed_string.encode()).digest()
+            trait_seed = int.from_bytes(hash_bytes[:4], 'big') & 0x7FFFFFFF
+
             hasher = BioHasher(input_dim=input_dim, hash_dim=hash_dim, seed=trait_seed)
             hasher_cache[(input_dim, trait_name)] = hasher
             keys_data["modalities"][trait_name] = {
@@ -196,7 +202,7 @@ def run_biohashing(
     # BioHash single-modality average templates
     bio_tmpl_cnt = 0
     for pid, trait, blob, dim in tmpl_rows:
-        emb = np.frombuffer(blob, dtype=np.float32).copy()
+        emb = np.frombuffer(blob, dtype=np.float32)
         hasher = get_hasher(dim, trait)
         bio_emb = hasher.generate_biohash(emb)
 
@@ -224,7 +230,7 @@ def run_biohashing(
         ).fetchall()
 
         for pid, l_idx, trait, blob, dim in live_rows:
-            emb = np.frombuffer(blob, dtype=np.float32).copy()
+            emb = np.frombuffer(blob, dtype=np.float32)
             hasher = get_hasher(dim, trait)
             bio_emb = hasher.generate_biohash(emb)
 

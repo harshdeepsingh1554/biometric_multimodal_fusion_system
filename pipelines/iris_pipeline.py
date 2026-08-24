@@ -131,6 +131,25 @@ def segment_iris(image_gray, pupil_radius_range=None, iris_radius_range=None):
     # forward-facing eye capture.
     ix, iy, ir = _pick_closest_circle(iris_circles[0], center=(px, py))
 
+    # --- Concentricity sanity check ---
+    # "Closest of the candidates Hough found" is not the same as "close
+    # enough to be the real iris boundary". A genuine iris/pupil pair is
+    # near-concentric; a center offset that's a large fraction of the
+    # iris radius almost always means Hough locked onto an eyelid crease,
+    # eyebrow shadow, or reflection edge instead of the true limbus.
+    # Rather than silently returning a bad circle (which then corrupts
+    # the polar unwrap and every downstream embedding), reject it and
+    # report failure explicitly.
+    center_offset = float(np.hypot(ix - px, iy - py))
+    max_allowed_offset = 0.35 * ir  # tune per dataset if needed
+    if center_offset > max_allowed_offset:
+        logger.warning(
+            f"Iris boundary rejected: center offset {center_offset:.1f}px exceeds "
+            f"{max_allowed_offset:.1f}px allowed for radius {ir}px (image size {w}x{h}). "
+            f"Likely a false detection (eyelid/eyebrow/reflection) rather than the true iris boundary."
+        )
+        return (px, py, pr), None
+
     return (px, py, pr), (ix, iy, ir)
 
 

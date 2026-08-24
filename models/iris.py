@@ -9,13 +9,7 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 PROJECT_ROOT = os.path.dirname(PARENT_DIR)
 
-from pipelines.iris_pipeline import (
-    segment_iris,
-    normalize_iris,
-    estimate_noise_mask,
-    encode_iris,
-    masked_hamming_distance,
-)
+from pipelines.open_iris_pipeline import OpenIrisPipelineManager, BiometricQualityFailure
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +19,30 @@ class _SelfContainedIrisManager:
         self.radial_res = radial_res
         self.angular_res = angular_res
         self.last_normalized_image = None
+        try:
+            self.open_iris_engine = OpenIrisPipelineManager()
+            logger.info("Deep UNet++ OpenIrisPipelineManager initialized successfully as primary iris engine.")
+        except Exception as e:
+            logger.warning(f"Failed to initialize deep OpenIrisPipelineManager: {e}. Falling back to classical Hough pipeline.")
+            self.open_iris_engine = None
 
+    def generate_biometric_template(self, image_path, eye_side="right"):
+        if self.open_iris_engine is not None:
+            try:
+                code, mask = self.open_iris_engine.generate_biometric_template(image_path, eye_side=eye_side)
+                self.last_normalized_image = self.open_iris_engine.last_normalized_image
+                return code, mask
+            except Exception as e:
+                logger.warning(f"Deep OpenIris engine failed for {image_path}: {e}. Trying classical Hough fallback...")
 
-    def generate_biometric_template(self,image_path, eye_side="right"):
-        image_gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        # Classical Hough fallback
+        if isinstance(image_path, str):
+            image_gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        elif isinstance(image_path, np.ndarray):
+            image_gray = cv2.cvtColor(image_path, cv2.COLOR_BGR2GRAY) if len(image_path.shape) == 3 else image_path
+        else:
+            raise TypeError(f"Invalid image type: {type(image_path)}")
+
         if image_gray is None:
             raise ValueError(f"Failed to read image from path: {image_path}")
 
@@ -48,9 +62,16 @@ class _SelfContainedIrisManager:
 
         noise_mask = estimate_noise_mask(polar_image)
         code, mask = encode_iris(polar_image, noise_mask)
-        return code, mask      
+        return code, mask
+
     def compute_masked_distance(self, code_a, mask_a, code_b, mask_b):
+        if self.open_iris_engine is not None and isinstance(code_a, list):
+            try:
+                return self.open_iris_engine.compute_masked_distance(code_a, mask_a, code_b, mask_b)
+            except Exception as e:
+                logger.warning(f"Deep OpenIris distance calculation failed: {e}. Falling back to classical distance.")
         return masked_hamming_distance(code_a, mask_a, code_b, mask_b)
+
 
 
 class OpenIrisModel:
