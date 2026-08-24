@@ -63,18 +63,20 @@ def process_concatenation(db_path: str, dataset: str):
     conn = sqlite3.connect(db_path)
     create_fused_tables(conn)
     cur = conn.cursor()
+    db_tables = [t[0] for t in cur.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
 
     # =========================================================================
     # 1. CONCATENATE ENROLLED TEMPLATES
     # =========================================================================
+    tmpl_table = "EMBEDDINGS" if "EMBEDDINGS" in db_tables else ("templates" if "templates" in db_tables else "embeddings")
     tmpl_rows = cur.execute(
-        "SELECT person_id, trait, embedding, dim FROM templates "
+        f"SELECT person_id, trait, embedding, dim FROM {tmpl_table} "
         "WHERE dataset=? ORDER BY person_id, trait",
         (dataset,)
     ).fetchall()
 
     if not tmpl_rows:
-        raise ValueError(f"No templates found for dataset='{dataset}' in {db_path}")
+        raise ValueError(f"No templates found in table '{tmpl_table}' for dataset='{dataset}' in {db_path}")
 
     person_templates = {}
     for pid, trait, blob, dim in tmpl_rows:
@@ -107,11 +109,16 @@ def process_concatenation(db_path: str, dataset: str):
     # =========================================================================
     # 2. CONCATENATE PROBE IMAGE EMBEDDINGS
     # =========================================================================
-    img_rows = cur.execute(
-        "SELECT person_id, trait, image_index, embedding, dim "
-        "FROM image_embeddings WHERE dataset=? ORDER BY person_id, trait, image_index",
-        (dataset,)
-    ).fetchall()
+    img_table = "live_embeddings" if "live_embeddings" in db_tables else ("image_embeddings" if "image_embeddings" in db_tables else None)
+    img_rows = []
+    if img_table:
+        cols = [c[1] for c in cur.execute(f"PRAGMA table_info({img_table})").fetchall()]
+        idx_col = "live_index" if "live_index" in cols else ("probe_index" if "probe_index" in cols else "image_index")
+        img_rows = cur.execute(
+            f"SELECT person_id, trait, {idx_col}, embedding, dim "
+            f"FROM {img_table} WHERE dataset=? ORDER BY person_id, trait, {idx_col}",
+            (dataset,)
+        ).fetchall()
 
     person_images = {}
     for pid, trait, img_idx, blob, dim in img_rows:

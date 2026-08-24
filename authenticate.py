@@ -49,7 +49,7 @@ if PROJECT_ROOT not in sys.path:
 
 from extractors.face_extractor import FaceExtractor
 from extractors.finger_extractor import FingerprintExtractor
-from extractors.iris_extractor import IrisExtractor
+from iris import IrisExtractor
 from biohashing import BioHasher
 from cbp_fusion_db import GeneralizedCompactBilinearFusion, post_process_cbp
 
@@ -197,6 +197,7 @@ def get_extractors(use_gpu=False):
     )
     _extractors_cache["iris"] = IrisExtractor(
         model_path=os.path.join(PROJECT_ROOT, "weights/iris/ResNet100_154000.pt"),
+        seg_model_path=os.path.join(PROJECT_ROOT, "weights/iris/iris_semseg_upp_scse_mobilenetv2.onnx"),
         use_gpu=use_gpu,
     )
     return _extractors_cache

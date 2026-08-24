@@ -1,5 +1,6 @@
 from .face_extractor import FaceExtractor
 from .finger_extractor import FingerprintExtractor
-from .iris_extractor import IrisExtractor
+from .sourceafis_matcher import SourceAFISMatcher
+from iris import IrisExtractor
 
-__all__ = ["FaceExtractor", "FingerprintExtractor", "IrisExtractor"]
+__all__ = ["FaceExtractor", "FingerprintExtractor", "IrisExtractor", "SourceAFISMatcher"]

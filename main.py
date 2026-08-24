@@ -26,7 +26,7 @@ import numpy as np
 
 from extractors.face_extractor import FaceExtractor
 from extractors.finger_extractor import FingerprintExtractor
-from extractors.iris_extractor import IrisExtractor
+from iris.extractor.iris_extractor import IrisExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,9 @@ class MultiModalBiometricPipeline:
         face_detector_path: str = "weights/face/det_10g.onnx",
         finger_model_path: str = "weights/finger/finger_extractor_best.pth",
         iris_model_path: str = "weights/iris/ResNet100_154000.pt",
+        iris_seg_model_path: str = "weights/iris/iris_semseg_upp_scse_mobilenetv2.onnx",
+        iris_circlenet_path: str = "weights/iris/resnet18-1543-0.047488-maskIoU-0.934494.pth",
+        iris_seg_backend: str = "circlenet",
         use_gpu: bool = False,
     ):
         logger.info("Loading face extractor...")
@@ -69,9 +72,12 @@ class MultiModalBiometricPipeline:
             use_gpu=use_gpu,
         )
 
-        logger.info("Loading iris extractor...")
+        logger.info(f"Loading iris extractor (seg_backend: {iris_seg_backend} + IResNet-100)...")
         self.iris_extractor = IrisExtractor(
             model_path=iris_model_path,
+            seg_model_path=iris_seg_model_path,
+            circlenet_model_path=iris_circlenet_path,
+            seg_backend=iris_seg_backend,
             use_gpu=use_gpu,
         )
 
@@ -655,6 +661,9 @@ if __name__ == "__main__":
     parser.add_argument("--face-detector", default="weights/face/det_10g.onnx")
     parser.add_argument("--finger-model",  default="weights/finger/finger_extractor_best.pth")
     parser.add_argument("--iris-model",    default="weights/iris/ResNet100_154000.pt")
+    parser.add_argument("--iris-seg-model", default="weights/iris/iris_semseg_upp_scse_mobilenetv2.onnx")
+    parser.add_argument("--iris-circlenet-model", default="weights/iris/resnet18-1543-0.047488-maskIoU-0.934494.pth")
+    parser.add_argument("--iris-seg", choices=["circlenet", "unet", "hough"], default="circlenet", help="Iris segmentation backend.")
     parser.add_argument("--gpu", action="store_true", help="Use CUDA GPU if available.")
     args = parser.parse_args()
 
@@ -663,6 +672,9 @@ if __name__ == "__main__":
         face_detector_path=args.face_detector,
         finger_model_path=args.finger_model,
         iris_model_path=args.iris_model,
+        iris_seg_model_path=args.iris_seg_model,
+        iris_circlenet_path=args.iris_circlenet_model,
+        iris_seg_backend=args.iris_seg,
         use_gpu=args.gpu,
     )
 

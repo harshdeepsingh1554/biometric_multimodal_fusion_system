@@ -271,31 +271,58 @@ def genuine_impostor_label_matrix(person_ids):
 # ==========================================================================
 
 def threshold_sweep(genuine_scores, impostor_scores, higher_is_match=True, num_thresholds=1000):
-    """FAR/FRR sweep, with GAR and TAR added (GAR = TAR = 1 - FRR)."""
+    """
+    FAR/FRR sweep with GAR, TAR, and overall classification Accuracy.
+    Formula: Accuracy = (TP + TN) / (TP + TN + FP + FN)
+    """
     all_scores = np.concatenate([genuine_scores, impostor_scores])
     thresholds = np.linspace(all_scores.min(), all_scores.max(), num_thresholds)
     n_gen, n_imp = len(genuine_scores), len(impostor_scores)
+    total_pairs = n_gen + n_imp
+
     far_list, frr_list = [], []
+    tp_list, tn_list, fp_list, fn_list = [], [], [], []
+    acc_list = []
 
     for t in thresholds:
         if higher_is_match:
-            far = np.sum(impostor_scores >= t) / n_imp if n_imp else 0.0
-            frr = np.sum(genuine_scores  <  t) / n_gen if n_gen else 0.0
+            tp = int(np.sum(genuine_scores >= t))
+            fn = int(np.sum(genuine_scores < t))
+            fp = int(np.sum(impostor_scores >= t))
+            tn = int(np.sum(impostor_scores < t))
         else:
-            far = np.sum(impostor_scores <= t) / n_imp if n_imp else 0.0
-            frr = np.sum(genuine_scores  >  t) / n_gen if n_gen else 0.0
+            tp = int(np.sum(genuine_scores <= t))
+            fn = int(np.sum(genuine_scores > t))
+            fp = int(np.sum(impostor_scores <= t))
+            tn = int(np.sum(impostor_scores > t))
+
+        far = fp / n_imp if n_imp else 0.0
+        frr = fn / n_gen if n_gen else 0.0
+        acc = (tp + tn) / max(total_pairs, 1)
+
         far_list.append(far)
         frr_list.append(frr)
+        tp_list.append(tp)
+        tn_list.append(tn)
+        fp_list.append(fp)
+        fn_list.append(fn)
+        acc_list.append(acc)
 
     far_arr = np.array(far_list)
     frr_arr = np.array(frr_list)
+    acc_arr = np.array(acc_list)
 
     return pd.DataFrame({
         "threshold": thresholds,
         "FAR":       far_arr,
         "FRR":       frr_arr,
         "GAR":       1.0 - frr_arr,   # Genuine Accept Rate
-        "TAR":       1.0 - frr_arr,   # True Accept Rate (identical definition to GAR)
+        "TAR":       1.0 - frr_arr,   # True Accept Rate
+        "accuracy":  acc_arr,         # (TP + TN) / (TP + TN + FP + FN)
+        "TP":        tp_list,
+        "TN":        tn_list,
+        "FP":        fp_list,
+        "FN":        fn_list,
         "abs_diff":  np.abs(far_arr - frr_arr),
     })
 
@@ -503,21 +530,27 @@ def plot_score_distribution(genuine_scores, impostor_scores, out_path_plot, out_
     plt.close(fig)
 
 
-def plot_confusion_matrix(counts_df, out_path_plot, out_path_data, label=""):
+def plot_confusion_matrix(counts_df, out_path_plot, out_path_data, label="", accuracy=None):
     counts_df.to_csv(out_path_data)
 
-    fig, ax = plt.subplots(figsize=(5, 4.5))
+    fig, ax = plt.subplots(figsize=(5.5, 4.8))
     im = ax.imshow(counts_df.values, cmap="Blues")
     ax.set_xticks(range(len(counts_df.columns)))
-    ax.set_xticklabels(counts_df.columns, rotation=20, ha="right")
+    ax.set_xticklabels(counts_df.columns, rotation=15, ha="right")
     ax.set_yticks(range(len(counts_df.index)))
     ax.set_yticklabels(counts_df.index)
+    total = counts_df.values.sum()
     for i in range(counts_df.shape[0]):
         for j in range(counts_df.shape[1]):
-            ax.text(j, i, str(counts_df.values[i, j]), ha="center", va="center",
-                    color="white" if counts_df.values[i, j] > counts_df.values.max() / 2 else "black",
-                    fontsize=13, fontweight="bold")
-    ax.set_title(f"Confusion Matrix (at EER threshold){' - ' + label if label else ''}")
+            val = counts_df.values[i, j]
+            pct = (val / total) * 100.0 if total else 0.0
+            ax.text(j, i, f"{val}\n({pct:.2f}%)", ha="center", va="center",
+                    color="white" if val > counts_df.values.max() / 2 else "black",
+                    fontsize=11, fontweight="bold")
+    title = f"Confusion Matrix{' - ' + label if label else ''}"
+    if accuracy is not None:
+        title += f"\nAccuracy = {accuracy*100:.2f}%  ((TP+TN)/Total)"
+    ax.set_title(title, fontsize=11)
     fig.colorbar(im, ax=ax, shrink=0.8)
     fig.tight_layout()
     fig.savefig(out_path_plot, dpi=150)
@@ -647,6 +680,7 @@ def evaluate_metric(person_ids, trait_data, metric_name, out_dir, n_bootstrap=50
         os.path.join(metric_dir, f"{metric_name}_confusion_matrix.png"),
         os.path.join(metric_dir, f"{metric_name}_confusion_matrix_data.csv"),
         label=label,
+        accuracy=cm_metrics["accuracy"],
     )
     plot_decision_matrix(
         decision_df,
@@ -661,8 +695,9 @@ def evaluate_metric(person_ids, trait_data, metric_name, out_dir, n_bootstrap=50
         label=label,
     )
 
-    print(f"  Confusion matrix: accuracy={cm_metrics['accuracy']:.4f}  "
-          f"precision={cm_metrics['precision']:.4f}  recall(GAR)={cm_metrics['recall']:.4f}  "
+    acc_pct = cm_metrics["accuracy"] * 100.0
+    print(f"  Accuracy (TP+TN)/(TP+TN+FP+FN) = {acc_pct:.2f}%  (TP={cm_metrics['TP']}, TN={cm_metrics['TN']}, FP={cm_metrics['FP']}, FN={cm_metrics['FN']})")
+    print(f"  Confusion matrix: precision={cm_metrics['precision']:.4f}  recall(GAR)={cm_metrics['recall']:.4f}  "
           f"specificity(1-FAR)={cm_metrics['specificity']:.4f}")
     print(f"  All outputs saved under: {metric_dir}")
 
@@ -676,6 +711,12 @@ def evaluate_metric(person_ids, trait_data, metric_name, out_dir, n_bootstrap=50
         "EER":                     eer,
         "EER_pct":                 round(eer * 100, 4),
         "EER_threshold":           eer_thr,
+        "accuracy_at_EER":         cm_metrics["accuracy"],
+        "accuracy_pct":            round(acc_pct, 4),
+        "TP":                      cm_metrics["TP"],
+        "TN":                      cm_metrics["TN"],
+        "FP":                      cm_metrics["FP"],
+        "FN":                      cm_metrics["FN"],
         "EER_bootstrap_mean":      ci_info["eer_bootstrap_mean"],
         "EER_CI_lower":            ci_info["ci_lower"],
         "EER_CI_upper":            ci_info["ci_upper"],
@@ -683,7 +724,6 @@ def evaluate_metric(person_ids, trait_data, metric_name, out_dir, n_bootstrap=50
         "TAR@FAR=1%":              float(tar_table.loc[tar_table["target_FAR"] == 0.01, "TAR"].values[0]),
         "TAR@FAR=0.1%":            float(tar_table.loc[tar_table["target_FAR"] == 0.001, "TAR"].values[0]),
         "TAR@FAR=0.01%":           float(tar_table.loc[tar_table["target_FAR"] == 0.0001, "TAR"].values[0]),
-        "accuracy_at_EER":         cm_metrics["accuracy"],
         "precision_at_EER":        cm_metrics["precision"],
         "GAR_at_EER":              cm_metrics["recall"],
         "specificity_at_EER":      cm_metrics["specificity"],
