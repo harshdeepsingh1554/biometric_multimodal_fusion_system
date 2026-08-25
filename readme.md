@@ -48,7 +48,8 @@ python fused_eval_matrix.py --db database/biometric.db --dataset setA --fusion_t
 
 # main  run
 
-python main.py --data-dir data/all_images/setA_std --db enrolled_templates.json --sqlite database/biometric.db --dataset setA
+ python main.py --data-dir data/all_images/setA --db e
+nrolled_templates.json --sqlite database/Database80.db --dataset setA --gpu  --iris-seg circlenet --finger-backend resnet50 --finger-model weights/finger/finger_extractor_best.pth       
 
 # clear tables from db
 
@@ -81,3 +82,26 @@ python authenticate.py --face D:\biometrics_intern\biometrics_fusion\data\all_im
 python authenticate.py --face D:\biometrics_intern\biometrics_fusion\data\all_images\setA\Person_018\face\18-05.jpg   --finger 'D:\biometrics_intern\biometrics_fusion\data\all_images\setA\Person_018\fingerprint right thumb\18_4.tif'  --thr-face 0.2971 --thr-finger 0.5474 --thr-fused 0.0313
 
 python authenticate.py --iris 'D:\biometrics_intern\biometrics_fusion\data\all_images\setA_std\Person_066\iris\iris_06.jpg'  --finger 'D:\biometrics_intern\biometrics_fusion\data\all_images\setA_std\Person_066\finger\finger_04.jpg'  --thr-iris 0.1289 --thr-finger 0.5474 --thr-fused 0.0313
+
+
+
+
+
+
+
+
+
+
+
+Run Unit Tests:
+bash
+
+python -m unittest tests/test_iris_engine.py -v
+Single Image Structured Extraction:
+bash
+
+python -c "from extractors.industrial_iris_engine import IndustrialIrisEngine; e = IndustrialIrisEngine(use_gpu=False); r = e.extract('data/chemric/setA/Person_001/iris_right.jpg'); print('Success:', r.success, 'Shape:', r.embedding.shape, 'Timings:', r.timings_ms)"
+Multimodal Verification Pipeline:
+bash
+
+python -c "from main import MultiModalBiometricPipeline; p = MultiModalBiometricPipeline(use_gpu=False); f, g, i = p.extract_all('data/chemric/setA/Person_001/face.jpg', 'data/chemric/setA/Person_001/fingerprint_right_thumb.jpg', 'data/chemric/setA/Person_001/iris_right.jpg'); print('Extracted traits:', f.shape, g.shape, i.shape)"

@@ -863,8 +863,8 @@ if __name__ == "__main__":
     parser.add_argument("--out_dir",       type=str, default="results/fused_eval",
                         help="Output directory for fused evaluation matrices.")
     parser.add_argument("--metrics",       type=str, nargs="+",
-                        default=["cosine", "euclidean", "manhattan", "hamming"],
-                        help="Which metrics to evaluate.")
+                        default=["cosine","hamming"],
+                        help="Which metrics to evaluate. choice left :euclidean, manhattan")
     parser.add_argument("--n_bootstrap",   type=int, default=500,
                         help="Number of person-level bootstrap iterations for EER & Accuracy CI.")
     parser.add_argument("--num_thresholds", type=int, default=1000)

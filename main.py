@@ -21,11 +21,13 @@ import logging
 import sqlite3
 import tempfile
 import argparse
+from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timezone
 import numpy as np
 
 from extractors.face_extractor import FaceExtractor
 from extractors.finger_extractor import FingerprintExtractor
+from fingerprint import DeepPrintFingerprintExtractor
 from iris.extractor.iris_extractor import IrisExtractor
 
 logger = logging.getLogger(__name__)
@@ -53,7 +55,8 @@ class MultiModalBiometricPipeline:
         self,
         face_model_path: str = "weights/face/w600k_r50.onnx",
         face_detector_path: str = "weights/face/det_10g.onnx",
-        finger_model_path: str = "weights/finger/finger_extractor_best.pth",
+        finger_model_path: Optional[str] = None,
+        finger_backend: str = "deepprint",
         iris_model_path: str = "weights/iris/ResNet100_154000.pt",
         iris_seg_model_path: str = "weights/iris/iris_semseg_upp_scse_mobilenetv2.onnx",
         iris_circlenet_path: str = "weights/iris/resnet18-1543-0.047488-maskIoU-0.934494.pth",
@@ -66,11 +69,20 @@ class MultiModalBiometricPipeline:
             detector_path=face_detector_path,
         )
 
-        logger.info("Loading fingerprint extractor...")
-        self.finger_extractor = FingerprintExtractor(
-            model_path=finger_model_path,
-            use_gpu=use_gpu,
-        )
+        logger.info(f"Loading fingerprint extractor (backend: {finger_backend})...")
+        if finger_backend == "deepprint":
+            actual_finger_path = finger_model_path or "weights/finger/best_model.pyt"
+            self.finger_extractor = DeepPrintFingerprintExtractor(
+                model_path=actual_finger_path,
+                model_type="deepprint_texminu",
+                use_gpu=use_gpu,
+            )
+        else:
+            actual_finger_path = finger_model_path or "weights/finger/finger_extractor_best.pth"
+            self.finger_extractor = FingerprintExtractor(
+                model_path=actual_finger_path,
+                use_gpu=use_gpu,
+            )
 
         logger.info(f"Loading iris extractor (seg_backend: {iris_seg_backend} + IResNet-100)...")
         self.iris_extractor = IrisExtractor(
@@ -659,7 +671,8 @@ if __name__ == "__main__":
     parser.add_argument("--dataset",   default="default", help="Dataset tag stored in SQLite (e.g. setA).")
     parser.add_argument("--face-model",    default="weights/face/w600k_r50.onnx")
     parser.add_argument("--face-detector", default="weights/face/det_10g.onnx")
-    parser.add_argument("--finger-model",  default="weights/finger/finger_extractor_best.pth")
+    parser.add_argument("--finger-backend", choices=["deepprint", "resnet50"], default="deepprint", help="Fingerprint feature extractor backend.")
+    parser.add_argument("--finger-model",  default="weights/finger/best_model.pyt", help="Fingerprint weights path (default: weights/finger/best_model.pyt for deepprint).")
     parser.add_argument("--iris-model",    default="weights/iris/ResNet100_154000.pt")
     parser.add_argument("--iris-seg-model", default="weights/iris/iris_semseg_upp_scse_mobilenetv2.onnx")
     parser.add_argument("--iris-circlenet-model", default="weights/iris/resnet18-1543-0.047488-maskIoU-0.934494.pth")
@@ -671,6 +684,7 @@ if __name__ == "__main__":
         face_model_path=args.face_model,
         face_detector_path=args.face_detector,
         finger_model_path=args.finger_model,
+        finger_backend=args.finger_backend,
         iris_model_path=args.iris_model,
         iris_seg_model_path=args.iris_seg_model,
         iris_circlenet_path=args.iris_circlenet_model,
